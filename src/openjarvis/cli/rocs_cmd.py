@@ -75,10 +75,14 @@ def _format_money(usd: float) -> str:
     return f"${usd:,.2f}"
 
 
-def _format_rocs(value: float, graded_count: int) -> str:
-    if graded_count == 0:
+def _format_rocs(row: RoCSRow) -> str:
+    if row.graded_count == 0:
         return "[dim]—[/dim]"
-    return f"{value:.3f}"
+    if row.graded_energy_joules <= 0:
+        # Graded traces exist but the engine reported zero energy (e.g. Ollama
+        # on Apple Silicon with no power sampler) — RoCS is undefined, not 0.
+        return "[dim]— (no energy)[/dim]"
+    return f"{row.rocs:.3f}"
 
 
 def _row_to_dict(r: RoCSRow) -> dict:
@@ -219,15 +223,20 @@ def _render_human(
             f"[dim]         {overall.ungraded_calls} ungraded engine calls[/dim]"
         )
     summary_lines.append("")
-    if overall.graded_count > 0:
+    if overall.graded_count == 0:
+        summary_lines.append(
+            "[bold cyan]RoCS:[/bold cyan]    [dim]— (no graded traces in window)[/dim]"
+        )
+    elif overall.graded_energy_joules <= 0:
+        summary_lines.append(
+            "[bold cyan]RoCS:[/bold cyan]    [dim]— (graded traces report zero energy; "
+            "enable a power sampler to compute RoCS)[/dim]"
+        )
+    else:
         summary_lines.append(
             f"[bold cyan]RoCS:[/bold cyan]    "
             f"{overall.rocs:.3f}  "
             f"[dim](energy-weighted feedback per joule, [0=bad, 1=great])[/dim]"
-        )
-    else:
-        summary_lines.append(
-            "[bold cyan]RoCS:[/bold cyan]    [dim]— (no graded traces in window)[/dim]"
         )
 
     if not traces_db_exists:
@@ -274,7 +283,7 @@ def _render_human(
             r.bucket or "[dim](direct ask)[/dim]",
             f"{r.traces_count}",
             f"{r.pct_graded * 100:.0f}%" if r.traces_count else "—",
-            _format_rocs(r.rocs, r.graded_count),
+            _format_rocs(r),
             _format_energy(r.total_energy_joules),
             _format_money(r.total_cost_usd),
             f"{r.joules_per_trace:.1f}" if r.traces_count else "—",

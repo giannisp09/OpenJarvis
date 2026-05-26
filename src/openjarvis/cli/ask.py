@@ -399,6 +399,23 @@ def _run_agent(
         except Exception as exc:
             logger.warning("Failed to inject memory context for agent: %s", exc)
 
+    # Wrap in TraceCollector so the run opens a trace_scope (stamps trace_id
+    # onto every telemetry row emitted underneath) AND persists the trace —
+    # the two halves the RoCS join needs to land on the same row.
+    if config.traces.enabled:
+        try:
+            from openjarvis.traces.collector import TraceCollector
+            from openjarvis.traces.store import TraceStore
+
+            collector = TraceCollector(
+                agent,
+                store=TraceStore(config.traces.db_path),
+                bus=bus,
+            )
+            return collector.run(query_text, context=ctx)
+        except Exception as exc:
+            logger.warning("TraceCollector wrap failed, running raw: %s", exc)
+
     return agent.run(query_text, context=ctx)
 
 

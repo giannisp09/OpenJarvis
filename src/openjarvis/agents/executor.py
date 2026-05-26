@@ -177,8 +177,16 @@ class AgentExecutor:
         result = None
         error_info = None
 
+        # Pre-generate trace_id so the saved Trace and every telemetry row
+        # emitted under it share the same id — that's the RoCS join key.
+        from openjarvis.core.types import _trace_id
+        from openjarvis.traces.context import trace_scope
+
+        trace_id = _trace_id()
+
         try:
-            result = self._run_with_retries(agent)
+            with trace_scope(trace_id):
+                result = self._run_with_retries(agent)
         except AgentTickError as e:
             error_info = e
         finally:
@@ -201,6 +209,7 @@ class AgentExecutor:
                     tick_start,
                     tick_duration,
                     trace_steps,
+                    trace_id=trace_id,
                 )
 
     def _run_with_retries(self, agent: dict) -> AgentResult:
@@ -643,6 +652,7 @@ class AgentExecutor:
         tick_start: float,
         tick_duration: float,
         trace_steps: list[dict[str, Any]],
+        trace_id: str | None = None,
     ) -> None:
         """Persist an execution trace to the trace store."""
         from openjarvis.core.types import StepType, Trace, TraceStep
@@ -668,6 +678,9 @@ class AgentExecutor:
             metadata["error_detail"] = self._build_error_detail(error)
 
         outcome = "success" if error is None else "error"
+        trace_kwargs: dict[str, Any] = {}
+        if trace_id is not None:
+            trace_kwargs["trace_id"] = trace_id
         trace = Trace(
             agent=agent_id,
             query=agent.get("summary_memory", "")[:200],
@@ -679,6 +692,7 @@ class AgentExecutor:
             ended_at=tick_start + tick_duration,
             total_latency_seconds=tick_duration,
             metadata=metadata,
+            **trace_kwargs,
         )
         try:
             self._trace_store.save(trace)
